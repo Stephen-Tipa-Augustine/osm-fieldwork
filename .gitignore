@@ -1,4 +1,5 @@
 # gdb_history
+venv/
 TAGS
 *~
 .deps
