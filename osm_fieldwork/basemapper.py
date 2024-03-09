@@ -26,6 +26,7 @@ import queue
 import re
 import sys
 import threading
+from io import BytesIO
 from pathlib import Path
 from typing import Union
 
@@ -125,7 +126,7 @@ class BaseMapper(object):
 
     def __init__(
         self,
-        boundary: str,
+        boundary: Union[str, BytesIO],
         base: str,
         source: str,
         xy: bool,
@@ -133,7 +134,7 @@ class BaseMapper(object):
         """Create an tile basemap for ODK Collect.
 
         Args:
-            boundary (str): A BBOX string or GeoJSON file of the AOI.
+            boundary (Union[str, BytesIO]): A BBOX string or GeoJSON file of the AOI or memory BytesIO.
                 The GeoJSON can contain multiple geometries.
             base (str): The base directory to cache map tile in
             source (str): The upstream data source for map tiles
@@ -272,18 +273,18 @@ class BaseMapper(object):
 
     def makeBbox(
         self,
-        boundary: str,
+        boundary: Union[str, BytesIO],
     ) -> tuple[float, float, float, float]:
         """Make a bounding box from a shapely geometry.
 
         Args:
-            boundary (str): A BBOX string or GeoJSON file of the AOI.
+            boundary (Union[str, BytesIO]): A BBOX string or GeoJSON file of the AOI or a memory BytesIO.
                 The GeoJSON can contain multiple geometries.
 
         Returns:
             (list): The bounding box coordinates
         """
-        if not boundary.lower().endswith((".json", ".geojson")):
+        if not isinstance(boundary, BytesIO) and not boundary.lower().endswith((".json", ".geojson")):
             # Is BBOX string
             try:
                 if "," in boundary:
@@ -304,9 +305,15 @@ class BaseMapper(object):
                 log.error(msg)
                 raise ValueError(msg) from None
 
-        log.debug(f"Reading geojson file: {boundary}")
-        with open(boundary, "r") as f:
-            poly = geojson.load(f)
+        elif isinstance(boundary, BytesIO):
+            log.debug("Reading geojson from memory")
+            # This ensures that we are pointing to the start of the file
+            boundary.seek(0)
+            poly = geojson.load(boundary)
+        else:
+            log.debug(f"Reading geojson file: {boundary}")
+            with open(boundary, "r") as f:
+                poly = geojson.load(f)
         if "features" in poly:
             geometry = shape(poly["features"][0]["geometry"])
         elif "geometry" in poly:
@@ -585,6 +592,12 @@ def main():
         log.error("")
         parser.print_help()
         quit()
+
+    # Convert the geojson file into memory byte
+    if boundary_parsed.lower().endswith((".json", ".geojson")):
+        with open("file.geojson", "rb") as geojson_file:
+            boundary = geojson_file.read()  # read as a `bytes` object.
+            boundary_parsed = BytesIO(boundary)  # add to a BytesIO wrapper
 
     create_basemap_file(
         verbose=args.verbose,
